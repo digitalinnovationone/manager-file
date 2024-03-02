@@ -6,6 +6,9 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.RandomAccessFile;
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Stream;
 
 public class NIOFilePersistence implements FilePersistence{
 
@@ -35,12 +38,30 @@ public class NIOFilePersistence implements FilePersistence{
 
     @Override
     public boolean remove(final String sentence) {
-        return false;
+        var contentList = toListString();
+
+        if (contentList.stream().noneMatch(c -> c.contains(sentence))) return false;
+
+        clearFile();
+        contentList.stream()
+                .filter(c -> !c.contains(sentence))
+                .forEach(this::write);
+
+        return true;
     }
 
     @Override
     public String replace(final String oldContent, final String newContent) {
-        return null;
+        var contentList = toListString();
+
+        if (contentList.stream().noneMatch(c -> c.contains(oldContent))) return "";
+
+        clearFile();
+        contentList.stream()
+                .map(c -> c.contains(oldContent) ? newContent : c)
+                .forEach(this::write);
+
+        return newContent;
     }
 
     @Override
@@ -69,7 +90,39 @@ public class NIOFilePersistence implements FilePersistence{
 
     @Override
     public String findBy(final String sentence) {
-        return null;
+        var content = new StringBuilder();
+        try(
+                var file = new RandomAccessFile(new File(currentDir + storedDir + fileName), "r");
+                var channel = file.getChannel();
+
+        ){
+            var buffer = ByteBuffer.allocate(256);
+            var bytesReader = channel.read(buffer);
+            while (bytesReader != -1){
+                buffer.flip();
+                while (buffer.hasRemaining()){
+                    while (!content.toString().endsWith(System.lineSeparator())) {
+                        content.append((char) buffer.get());
+                    }
+                    if (content.toString().contains(sentence)){
+                        break;
+                    } else {
+                      content.setLength(0);
+                    }
+                    if (!content.isEmpty()) break;
+                }
+                buffer.clear();
+                bytesReader = channel.read(buffer);
+            }
+        }catch (IOException ex){
+            ex.printStackTrace();
+        }
+        return content.toString();
+    }
+
+    private List<String> toListString() {
+        var content = findAll();
+        return new ArrayList<>(Stream.of(content.split(System.lineSeparator())).toList());
     }
 
     private void clearFile(){
